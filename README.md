@@ -582,12 +582,6 @@ Rename-Item "$env:CONDA_PREFIX\Lib\site-packages\pyarrow\msvcp140.dll" "msvcp140
   或把「重排方式」选 `llm` / `off` 避开。
 - **启动时一直打印 `Examining the path of transformers...`**：这是 Streamlit 文件监视器在遍历已导入模块，不是报错；可加 `--server.fileWatcherType none` 静默（代价是改代码不自动热重载）。
 
-## 安全提示
-
-- **不要提交 `.env`**：里面是真实的 API Key 与管理员密码。仓库已通过 `.gitignore` 忽略 `.env`、`data/`、`*.db`。
-- 如果你曾把 `.env` 或密钥推到公开平台，请**立即在对应平台重置 / 吊销 Key**。
-- 公网演示时保持 `APP_AUTH_ENABLED=true`，并修改默认管理员密码。
-
 ---
 
 如果这个项目对你有帮助，欢迎 Star ⭐ 与提交 Issue / PR。
