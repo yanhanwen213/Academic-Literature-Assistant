@@ -1,0 +1,80 @@
+{
+  "note": "配套 scripts/make_sample_papers.py --with-distractors 生成的 8 篇论文。expected_sources 为标题关键字（包含匹配）；expected_keywords 衡量召回覆盖。末尾 3 条是负样本（库里没有对应内容），用于拒答阈值扫描。建议配合 --top-k 3 使用，这样的区分度才明显。",
+  "cases": [
+    {
+      "question": "What hit rate does dense embedding retrieval report?",
+      "expected_sources": ["Dense Passage Retrieval"],
+      "expected_keywords": ["hit rate", "sixty", "dense"]
+    },
+    {
+      "question": "Why does dense retrieval miss acronym and formula queries?",
+      "expected_sources": ["Dense Passage Retrieval"],
+      "expected_keywords": ["acronym", "formula", "rare tokens"]
+    },
+    {
+      "question": "What does RRF fuse and what k value is used?",
+      "expected_sources": ["Reciprocal Rank Fusion"],
+      "expected_keywords": ["rrf", "sixty", "bm25"]
+    },
+    {
+      "question": "How is Chinese text tokenised in the hybrid retrieval system?",
+      "expected_sources": ["Reciprocal Rank Fusion"],
+      "expected_keywords": ["bigram", "chinese", "tokenis"]
+    },
+    {
+      "question": "What is the RRF constant default and why no score normalisation?",
+      "expected_sources": ["Reciprocal Rank Fusion"],
+      "expected_keywords": ["rrf", "normalisation", "rank"]
+    },
+    {
+      "question": "How much does cross encoder reranking improve MRR?",
+      "expected_sources": ["Cross Encoder Reranking"],
+      "expected_keywords": ["mrr", "0.83", "rerank"]
+    },
+    {
+      "question": "What is the fallback when the local cross encoder rerank model is unavailable?",
+      "expected_sources": ["Cross Encoder Reranking"],
+      "expected_keywords": ["llm", "fallback", "eight"]
+    },
+    {
+      "question": "What chunk size gives the best balance of recall and precision?",
+      "expected_sources": ["Chunk Size"],
+      "expected_keywords": ["chunk", "overlap", "balance"]
+    },
+    {
+      "question": "How does chunk size trade off precision and recall?",
+      "expected_sources": ["Chunk Size"],
+      "expected_keywords": ["precision", "recall", "chunk"]
+    },
+    {
+      "question": "Do citation required prompts reduce hallucination?",
+      "expected_sources": ["Prompt Design"],
+      "expected_keywords": ["citation", "hallucination", "completeness"]
+    },
+    {
+      "question": "What p99 latency does batched reranking achieve?",
+      "expected_sources": ["Latency Aware Reranking"],
+      "expected_keywords": ["p99", "latency", "batch"]
+    },
+    {
+      "question": "Does synthetic question generation inflate recall?",
+      "expected_sources": ["Synthetic Questions"],
+      "expected_keywords": ["synthetic", "recall", "optimism"]
+    },
+    {
+      "question": "What is the best recipe for baking sourdough bread at home?",
+      "expected_sources": [],
+      "expected_keywords": []
+    },
+    {
+      "question": "How do I change a car tire safely on the roadside?",
+      "expected_sources": [],
+      "expected_keywords": []
+    },
+    {
+      "question": "Who won the football world cup in 2018?",
+      "expected_sources": [],
+      "expected_keywords": []
+    }
+  ]
+}

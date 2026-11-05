@@ -1,0 +1,20 @@
+{
+  "note": "评测数据集模板：复制成自己的 questions.json 后修改。expected_sources 支持包含匹配，可填 source_key（上传的 PDF 是 pdf:xxxxxxxxxxxx，arXiv 是 arxiv:2401.00001）、文件名或论文标题；expected_keywords 可选，用来衡量检索片段是否覆盖了关键概念。",
+  "cases": [
+    {
+      "question": "这篇论文要解决什么问题？",
+      "expected_sources": ["arxiv:2401.00001"],
+      "expected_keywords": ["problem", "challenge"]
+    },
+    {
+      "question": "作者提出的方法包含哪几个步骤？",
+      "expected_sources": ["arxiv:2401.00001"],
+      "expected_keywords": ["method", "step"]
+    },
+    {
+      "question": "实验用到了哪些数据集和评测指标？",
+      "expected_sources": ["arxiv:2401.00001"],
+      "expected_keywords": ["dataset", "accuracy"]
+    }
+  ]
+}

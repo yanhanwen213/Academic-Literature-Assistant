@@ -1,0 +1,40 @@
+# ---- 密钥与本地配置（务必不要提交）----
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- 运行时数据（向量库 / SQLite / 备份 / 抽取结果 / 缓存模型）----
+data/
+*.db
+*.db-journal
+*.lance/
+*.log
+
+# ---- 工具缓存 ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# ---- 编辑器 / 系统 ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

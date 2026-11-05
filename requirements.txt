@@ -1,0 +1,34 @@
+# -*- coding: utf-8 -*-
+# 一次性安装全部依赖：pip install -r requirements.txt
+# 建议 Python 3.10+（LangChain 1.x / LanceDB 需要较新的 Python，3.13 已实测可用）
+
+# ---- 前端（Streamlit）
+streamlit>=1.40,<2.0
+# 管理后台的趋势图/表格直接使用 pandas（Streamlit 本身也依赖它，这里显式声明）
+pandas>=1.4,<3.0
+
+# ---- LLM 编排（LangChain）
+langchain-core>=1.0,<2.0
+langchain-openai>=1.0,<2.0
+langchain-ollama>=1.0,<2.0
+langchain-groq>=1.0,<2.0
+
+# ---- 向量库（嵌入式 LanceDB，不需要任何数据库服务）
+lancedb>=0.20
+pyarrow>=14.0
+
+# ---- 混合检索（BM25 稀疏一路，纯 Python）
+rank_bm25>=0.2.2
+
+# ---- 引用图谱（论文-引用网络，多跳检索）
+networkx>=3.0
+# ---- 重排（可选，本地 cross-encoder；只用 LLM 重排可不装）
+# 不装也能跑：RAG_RERANK_MODE=auto 会自动退化为 LLM 重排
+sentence-transformers>=3.0
+
+# ---- 文档解析（PyMuPDF 做版面分析，pypdf 兜底）
+pymupdf>=1.24,<2.0
+pypdf>=4.2,<7.0
+
+# ---- 配置
+python-dotenv>=1.0,<2.0
