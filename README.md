@@ -93,6 +93,8 @@
 
 ## 目录结构
 
+> 下面是仓库**实际提交**的文件结构（共 61 个文件）；`data/` 为运行时数据，已在 `.gitignore` 中排除，不会上传。
+
 ```
 Academic_Literature_Assistant/
 ├── frontend/                      # Streamlit 界面层
@@ -102,8 +104,15 @@ Academic_Literature_Assistant/
 │   ├── citation_graph_view.py     # 可缩放引用关系图（纯 SVG + JS，无第三方绘图库）
 │   ├── workspace_ui.py            # 统一视觉组件：主题、页头、页面背景装饰
 │   ├── title_orbits.py            # 标题星轨装饰（内联 SVG/CSS）
-│   └── assets/                    # 背景图片素材（本地 base64 内联，无外链）
+│   └── assets/                    # 背景素材（本地 base64 内联，无外链）
+│       ├── chat_lace_background.png
+│       ├── library_floral_background.jpg
+│       ├── library_natural_blossoms.png
+│       ├── graph_hydrangea_sky.png
+│       ├── admin_lavender_dusk.png
+│       └── login_reader.png
 ├── backend/                       # 平台层：账号 / 权限 / 审计 / 统计 / 评测（SQLite）
+│   ├── __init__.py
 │   ├── config.py                  # APP_* 环境变量：门禁、配额、限流、保留期
 │   ├── db.py                      # 平台库连接与建表（users/audit_log/qa_log/eval_runs，WAL）
 │   ├── users.py                   # 账号 CRUD、scrypt 密码、角色能力表、配额
@@ -112,6 +121,7 @@ Academic_Literature_Assistant/
 │   ├── eval.py                    # 评测中心：数据集管理、跑评测、结果落库、导出
 │   └── admin.py                   # 概览指标、在线质量、知识库运维、备份/恢复、健康检查
 ├── agent/                         # Agent 层：LLM + Prompt + 会话
+│   ├── __init__.py
 │   ├── config.py                  # provider（Groq/DeepSeek/…）、模型列表、存储开关
 │   ├── llm.py                     # LLM 工厂：ChatGroq / ChatOpenAI（OpenAI 兼容）
 │   ├── prompts.py                 # ChatPromptTemplate + 参考资料格式化
@@ -120,6 +130,7 @@ Academic_Literature_Assistant/
 │   ├── session.py                 # ChatSession：对话、入库、文献管理、历史
 │   └── check_llm.py               # API Key / 模型连通性自检脚本
 ├── rag/                           # RAG 层：解析 + 向量化 + 检索 + 评测
+│   ├── __init__.py
 │   ├── config.py                  # 数据目录、切分与检索参数
 │   ├── cleaning.py                # 文本清洗：控制符/连字/伪字符/空白归一
 │   ├── parsers.py                 # 版面感知 PDF 解析（PyMuPDF，pypdf 兜底）
@@ -145,14 +156,25 @@ Academic_Literature_Assistant/
 │   ├── eval_questions.example.json  # 评测数据集模板
 │   └── eval_questions.sample.json   # 与 make_sample_papers 配套的样例评测集
 ├── scripts/
+│   ├── __init__.py
 │   ├── run_experiments.py         # 消融实验矩阵（dense/hybrid/rerank）
 │   ├── make_sample_papers.py      # 生成可离线跑通的样例 PDF（含干扰文献）
 │   └── check_s2.py                # Semantic Scholar Key / 限流诊断
-├── data/                          # 运行后自动生成（已在 .gitignore 中）
-├── requirements.txt
-├── .env.example
+├── data/                          # 运行后自动生成（gitignore：向量库/会话/账号/评测/备份）
+├── requirements.txt               # 依赖清单
+├── .env.example                   # 环境变量模板（复制为 .env）
+├── .gitignore                     # 忽略 .env / data/ / 缓存
 └── README.md
 ```
+
+各层职责与依赖方向：
+
+| 层 | 负责 | 不负责 |
+| --- | --- | --- |
+| `frontend/` | 页面、按钮、上传、流式渲染 | 不碰模型和向量库，只调 `ChatSession` |
+| `backend/` | 账号、权限、审计、用量统计、评测落库 | 不碰检索与对话逻辑 |
+| `agent/` | 选模型、拼 Prompt、多轮记忆、调用检索 | 不碰 Streamlit，可被脚本复用 |
+| `rag/` | PDF / arXiv 解析、切分、embedding、向量库增删查、检索评测 | 不碰对话逻辑 |
 
 ## 快速开始
 
