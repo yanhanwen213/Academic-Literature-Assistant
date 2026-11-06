@@ -66,6 +66,8 @@ def render_admin(me: Dict[str, object]) -> None:
 
 # ---------------------------------------------------------------- 概览
 def _render_overview() -> None:
+    st.markdown("### 📊 运营概览")
+    st.caption("账号、提问量、响应耗时与今日成本的整体视图。")
     data = admin_backend.overview()
     columns = st.columns(5)
     columns[0].metric("账号数", f"{data['users_active']}/{data['users_total']}")
@@ -140,6 +142,8 @@ def _user_rows() -> List[Dict[str, object]]:
 
 
 def _render_users(me: Dict[str, object]) -> None:
+    st.markdown("### 👥 用户与权限")
+    st.caption("管理账号、角色、启用状态与每日提问额度。")
     st.markdown("**账号列表**")
     st.dataframe(_user_rows(), use_container_width=True, hide_index=True)
 
@@ -369,6 +373,8 @@ def _render_users(me: Dict[str, object]) -> None:
 
 # ---------------------------------------------------------------- 知识库
 def _render_libraries(me: Dict[str, object]) -> None:
+    st.markdown("### 📚 知识库运维")
+    st.caption("查看库规模、可见性，并执行新建 / 重命名 / 删除等维护操作。")
     rows = admin_backend.library_metrics()
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
@@ -524,6 +530,8 @@ def _render_libraries(me: Dict[str, object]) -> None:
 
 # ---------------------------------------------------------------- 审计
 def _render_audit() -> None:
+    st.markdown("### 🧾 审计日志")
+    st.caption("按用户、操作与时间筛选敏感操作记录。")
     user_names = ["（全部）"] + [user.username for user in users.list_users()]
     action_values = ["（全部）"] + list(audit.ACTIONS.keys())
 
@@ -563,6 +571,8 @@ def _render_audit() -> None:
 
 # ---------------------------------------------------------------- 健康
 def _render_health() -> None:
+    st.markdown("### 🩺 系统健康")
+    st.caption("检查向量库、模型、存储与外部服务连通性。")
     items = admin_backend.health()
     st.dataframe(
         [{"检查项": row["检查项"], "状态": row["状态"], "说明": row["说明"]} for row in items],
@@ -577,6 +587,7 @@ def _render_health() -> None:
 
 # ---------------------------------------------------------------- 评测
 def _render_eval(me: Dict[str, object]) -> None:
+    st.markdown("### 🧪 评测工作台")
     st.caption(
         "离线检索评测：数据集 × 检索配置 → 指标落库，可复现、可导出。"
         "建议 20 题以内；混合检索 + 重排的耗时通常是纯向量的数倍。"
@@ -589,7 +600,28 @@ def _render_eval(me: Dict[str, object]) -> None:
     if flash:
         st.success(flash)
 
-    with st.expander("数据集管理（上传 / 下载模板）", expanded=False):
+    recent = eval_backend.list_runs(1)
+    st.markdown("#### 评测概览")
+    if recent:
+        last = recent[0]
+        st.caption(
+            f"最近一次 #{last['ID']} · {last['时间']} · {last['数据集']} · "
+            f"{last['模式']}/{last['重排']} · top-{last['top-k']} · {last['题数']} 题"
+        )
+        m_cols = st.columns(5)
+        m_cols[0].metric("Hit Rate", f"{last['Hit Rate']}%")
+        m_cols[1].metric("Recall@k", f"{last['Recall']}%")
+        m_cols[2].metric("MRR", f"{last['MRR']}")
+        m_cols[3].metric("关键词命中", f"{last['关键词']}%")
+        m_cols[4].metric("检索精确率", f"{last['精确率']}%")
+    else:
+        st.info("还没有评测记录。选择数据集并运行一次评测后，这里会显示最新指标。")
+    st.divider()
+
+    st.markdown("#### 1. 数据集")
+    with st.container(border=True):
+        st.markdown("**数据集管理**")
+        st.caption("上传自定义评测集，或下载模板按字段填写。")
         st.download_button(
             "下载模板 JSON",
             data=eval_backend.template_dataset(),
@@ -649,30 +681,32 @@ def _render_eval(me: Dict[str, object]) -> None:
         f"共 {meta['题数']} 题"
     )
 
-    library_names = [library.name for library in libs.list_libraries()]
-    cols = st.columns([1.5, 1, 1, 0.8, 0.8])
-    library = cols[0].selectbox("知识库", options=library_names, key="eval_library")
-    mode = cols[1].selectbox(
-        "检索模式", options=list(eval_backend.MODES), key="eval_mode"
-    )
-    rerank = cols[2].selectbox(
-        "重排", options=list(eval_backend.RERANKS), key="eval_rerank"
-    )
-    top_k = cols[3].number_input(
-        "top-k", min_value=1, max_value=20, value=5, step=1, key="eval_topk"
-    )
-    default_limit = min(int(meta["题数"]) or 1, eval_backend.MAX_CASES, 20)
-    limit = cols[4].number_input(
-        "题数上限",
-        min_value=1,
-        max_value=eval_backend.MAX_CASES,
-        value=default_limit,
-        step=1,
-        key="eval_limit",
-    )
-    st.caption(
-        "评测只读检索结果，不会调用大模型生成回答；`llm` 重排会调用模型，费用更高。"
-    )
+    st.markdown("#### 2. 检索配置")
+    with st.container(border=True):
+        st.caption(
+            "评测只读检索结果，不会调用大模型生成回答；`llm` 重排会调用模型，费用更高。"
+        )
+        library_names = [library.name for library in libs.list_libraries()]
+        cols = st.columns([1.5, 1, 1, 0.8, 0.8])
+        library = cols[0].selectbox("知识库", options=library_names, key="eval_library")
+        mode = cols[1].selectbox(
+            "检索模式", options=list(eval_backend.MODES), key="eval_mode"
+        )
+        rerank = cols[2].selectbox(
+            "重排", options=list(eval_backend.RERANKS), key="eval_rerank"
+        )
+        top_k = cols[3].number_input(
+            "top-k", min_value=1, max_value=20, value=5, step=1, key="eval_topk"
+        )
+        default_limit = min(int(meta["题数"]) or 1, eval_backend.MAX_CASES, 20)
+        limit = cols[4].number_input(
+            "题数上限",
+            min_value=1,
+            max_value=eval_backend.MAX_CASES,
+            value=default_limit,
+            step=1,
+            key="eval_limit",
+        )
 
     action_cols = st.columns([1, 1, 3])
     if action_cols[0].button("🔍 体检数据集", key="eval_check_btn"):
@@ -840,6 +874,11 @@ def _render_eval(me: Dict[str, object]) -> None:
                     )
                     st.rerun()
 
+    st.caption(
+        f"当前配置：{meta['名称']} · {library} · {mode}/{rerank} · "
+        f"top-{top_k} · 最多 {limit} 题"
+    )
+    st.markdown("#### 3. 运行评测")
     if st.button("▶ 运行评测", type="primary", key="eval_run_btn"):
         bar = st.progress(0.0, text="初始化知识库与 embedding…")
 
@@ -882,6 +921,7 @@ def _render_eval(me: Dict[str, object]) -> None:
 
     _render_eval_result(st.session_state.get("eval_last"))
 
+    st.markdown("#### 4. 消融对比")
     with st.expander("消融对比（纯向量 / 混合 / 混合+重排）", expanded=False):
         st.caption(
             "依次跑 3 组配置，耗时约为单次评测的 3 倍，每组各存一条记录；"
@@ -955,13 +995,16 @@ def _render_eval(me: Dict[str, object]) -> None:
             st.code(eval_backend.matrix_markdown(matrix_rows), language="markdown")
 
     st.divider()
-    st.markdown("**历史评测**")
+    st.markdown("#### 5. 历史记录")
     runs = eval_backend.list_runs(200)
     if not runs:
         st.caption("还没有评测记录。")
         return
     st.dataframe(runs, use_container_width=True, hide_index=True)
-    st.caption("显示最近 200 条；删除/清空只影响历史记录，不会删除数据集 JSON。")
+    st.caption(
+        f"共 {len(runs)} 条记录（最多显示最近 200 条）；"
+        "删除/清空只影响历史记录，不会删除数据集 JSON。"
+    )
     st.download_button(
         "导出历史 CSV",
         data=eval_backend.runs_csv(runs),
@@ -1113,11 +1156,45 @@ def _render_eval_result(result) -> None:
             "与库里的 source_key / 标题一致，或换用「生成评测集」自动出题。"
         )
     cols = st.columns(5)
-    cols[0].metric("Hit Rate", f"{metrics['hit_rate'] * 100:.1f}%")
-    cols[1].metric("Recall@k", f"{metrics['recall'] * 100:.1f}%")
-    cols[2].metric("MRR", f"{metrics['mrr']:.3f}")
-    cols[3].metric("关键词命中", f"{metrics['keyword_hit'] * 100:.1f}%")
-    cols[4].metric("检索精确率", f"{metrics['precision'] * 100:.1f}%")
+    previous = None
+    current_id = int(result.get("id") or 0)
+    if current_id:
+        try:
+            for row in eval_backend.list_runs(3):
+                if int(row["ID"]) != current_id:
+                    previous = row
+                    break
+        except Exception:  # noqa: BLE001 - 对比失败不影响看本次结果
+            previous = None
+
+    def _pct_delta(value: float, key: str):
+        return None if previous is None else round(value * 100 - float(previous[key]), 1)
+
+    def _num_delta(value: float, key: str):
+        return None if previous is None else round(float(value) - float(previous[key]), 3)
+
+    cols[0].metric(
+        "Hit Rate", f"{metrics['hit_rate'] * 100:.1f}%",
+        delta=_pct_delta(metrics["hit_rate"], "Hit Rate"),
+    )
+    cols[1].metric(
+        "Recall@k", f"{metrics['recall'] * 100:.1f}%",
+        delta=_pct_delta(metrics["recall"], "Recall"),
+    )
+    cols[2].metric(
+        "MRR", f"{metrics['mrr']:.3f}",
+        delta=_num_delta(metrics["mrr"], "MRR"),
+    )
+    cols[3].metric(
+        "关键词命中", f"{metrics['keyword_hit'] * 100:.1f}%",
+        delta=_pct_delta(metrics["keyword_hit"], "关键词"),
+    )
+    cols[4].metric(
+        "检索精确率", f"{metrics['precision'] * 100:.1f}%",
+        delta=_pct_delta(metrics["precision"], "精确率"),
+    )
+    if previous is not None:
+        st.caption(f"Δ 对比上一次评测 #{previous['ID']}（{previous['时间']}）")
     st.dataframe(result["case_rows"], use_container_width=True, hide_index=True)
     st.download_button(
         "下载逐题 CSV",

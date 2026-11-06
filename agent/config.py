@@ -114,6 +114,10 @@ DEBUG_MODE = _env_bool("AGENT_DEBUG", False)
 # 带给 LLM 的历史消息条数
 NUM_HISTORY_MESSAGES = int(os.getenv("NUM_HISTORY_MESSAGES", "4"))
 
+# 视觉模型可以单独指定 Key / 接口地址（例如文本用 DeepSeek，图片用 OpenAI 兼容视觉服务）
+VISION_API_KEY = (os.getenv("RAG_VISION_API_KEY") or "").strip()
+VISION_BASE_URL = (os.getenv("RAG_VISION_BASE_URL") or "").strip()
+
 WELCOME_MESSAGE = "先上传 PDF 文献或导入 arXiv 论文，然后就可以开始提问了。"
 
 # 前端提示语：切换 embedding 模型后需要重新入库

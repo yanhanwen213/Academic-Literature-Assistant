@@ -543,9 +543,21 @@ def _sample_documents(library: str, count: int) -> List[Any]:
 
 def _llm_question(llm, document) -> Dict[str, Any]:
     text = (getattr(document, "page_content", "") or "")[:1800]
+    meta = _doc_meta(document)
+    label = _doc_label(meta)
+    section = str(meta.get("section") or "").strip()
+    context = f"这篇论文的标题是《{label}》"
+    if section:
+        context += f"，所在章节是「{section}」"
     prompt = (
         "你是学术文献评测集的作者。请根据下面的片段出一道**只能靠该片段回答**的中文问题，"
         "并给出 3~5 个能在片段里找到的关键词（英文或中文原词）。\n"
+        f"{context}。\n"
+        "出题要求：\n"
+        "1. 问题里必须写出论文标题，或标题中的方法名/专有名词；"
+        "禁止使用「该论文」「该片段」「本文」「这篇」等指代；\n"
+        "2. 只问片段里能回答的方法、结果、结论或具体数值；"
+        "不要问作者、通讯作者、期刊、页码等元数据；\n"
         '只输出 JSON，不要解释：{"question": "...", "keywords": ["...", "..."]}\n\n'
         f"片段：\n{text}"
     )
@@ -559,6 +571,12 @@ def _llm_question(llm, document) -> Dict[str, Any]:
     question = str(payload.get("question") or "").strip()
     if not question:
         raise ValueError("模型返回的问题为空")
+    # 兜底：模型仍用「该论文/该片段」或没写标题时，补上标题前缀，
+    # 否则在多文献知识库里检索时无法区分是哪一篇。
+    vague = ("该论文" in question or "该片段" in question or "本文" in question)
+    missing_label = bool(label) and label not in question
+    if label and (vague or missing_label):
+        question = f"在《{label}》中，{question}"
     keywords = [
         str(item).strip()
         for item in (payload.get("keywords") or [])

@@ -41,6 +41,7 @@ _AGENT_PROMPT = """你是一个学术文献检索助手。你可以调用工具�
    - 「它引用了谁 / 谁引用了它 / 技术演进脉络」→ 引用图谱工具
      （get_references / get_citations / trace_lineage）
    - 「做一张方法对比表」→ compare_methods
+   - 「这篇论文有哪些图 / 解释这张图」→ list_figures / describe_figure
    - 其余具体问题 → {search_tool}
 4. 证据足够时就停止调用工具，直接给出回答（回答会由后续步骤统一生成）。"""
 
@@ -90,22 +91,36 @@ class ToolChainRunner:
         max_steps: int = TOOL_MAX_STEPS,
         citation_graph=None,
         extraction_store=None,
+        figure_lister=None,
+        figure_describer=None,
+        extra_tools: Optional[Sequence] = None,
     ) -> None:
         self.llm = llm
         self.knowledge = knowledge
         self.max_steps = max(1, max_steps)
         self.citation_graph = citation_graph
         self.extraction_store = extraction_store
+        self.figure_lister = figure_lister
+        self.figure_describer = figure_describer
+        # 外部 MCP 工具（LangChain BaseTool），由 ChatSession 按需注入
+        self.extra_tools = list(extra_tools or [])
         self.tools = LiteratureTools(
             knowledge,
             citation_graph=citation_graph,
             extraction_store=extraction_store,
+            figure_lister=figure_lister,
+            figure_describer=figure_describer,
         )
+
+    def _all_tool_names(self) -> List[str]:
+        names = [tool.name for tool in self.tools.as_langchain_tools()]
+        names.extend(getattr(tool, "name", "") for tool in self.extra_tools)
+        return [name for name in names if name]
 
     # 给 _AGENT_PROMPT 里的 {占位符} 填上真实值，生成一段完整的提示词字符串。
     def _system_prompt(self) -> str:
         return _AGENT_PROMPT.format(
-            tool_names=", ".join(tool.name for tool in self.tools.as_langchain_tools()),
+            tool_names=", ".join(self._all_tool_names()),
             max_steps=self.max_steps,
             list_tool="list_papers",
             read_tool="read_section",
@@ -123,12 +138,15 @@ class ToolChainRunner:
             self.knowledge,
             citation_graph=self.citation_graph,
             extraction_store=self.extraction_store,
+            figure_lister=self.figure_lister,
+            figure_describer=self.figure_describer,
         )
         result = ToolChainResult() # 判断是否调用了工具函数，为bool类型
 
+        langchain_tools = list(self.tools.as_langchain_tools()) + list(self.extra_tools)
         try:
             # 是在框架层的BaseChatModel 这个类的一个方法 bind_tools()，bind_tools 不做决定，它只做一件事：把「有哪些工具」告诉模型。并不会直接运行
-            bound = self.llm.bind_tools(self.tools.as_langchain_tools())
+            bound = self.llm.bind_tools(langchain_tools)
         except Exception as exc:  # noqa: BLE001 - 模型不支持工具调用
             logger.warning("当前模型不支持工具调用，回退单步检索：%s", exc)
             documents = self.knowledge.search(question)
@@ -169,7 +187,7 @@ class ToolChainRunner:
 
             for call in calls:
                 before = len(self.tools.collector)  # 执行前的片段条数（快照，用于算本次新增）
-                output = self.tools.dispatch(call["name"], call["args"])  # 行动(Acting)：真正执行工具，返回结果文本
+                output = self._dispatch(call["name"], call["args"])  # 行动(Acting)：真正执行工具，返回结果文本
                 record = self.tools.record(step, call["name"], call["args"], output)  # 造一条调用记录（ToolCall 实例）
                 record.documents = len(self.tools.collector) - before  # 本次新增片段条数 = 执行后 - 执行前
                 evidence_blocks.append(f"【{call['name']}】\n{output}")
@@ -192,6 +210,20 @@ class ToolChainRunner:
             result.stopped_reason,
         )
         return result
+
+    def _dispatch(self, name: str, args: Dict[str, Any]) -> str:
+        """先找外部 MCP 工具，再回落到内置工具集。"""
+        for tool in self.extra_tools:
+            if getattr(tool, "name", "") != name:
+                continue
+            try:
+                if hasattr(tool, "invoke"):
+                    return str(tool.invoke(args))
+                return str(tool(**args))
+            except Exception as exc:  # noqa: BLE001 - 外部工具故障不能拖垮链路
+                logger.warning("外部工具 %s 执行失败：%s", name, exc)
+                return f"外部工具 {name} 执行失败：{exc}"
+        return self.tools.dispatch(name, args)
 
     def stream_final(
         self,

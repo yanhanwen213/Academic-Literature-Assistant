@@ -15,7 +15,7 @@ from langchain_core.documents import Document
 
 from rag.arxiv import download_arxiv_pdf, fetch_arxiv_paper, normalize_arxiv_id
 from rag.chunking import paper_to_documents
-from rag.config import INCLUDE_REFERENCES
+from rag.config import INCLUDE_REFERENCES, PAPERS_DIR, STORE_PDF
 from rag.parsers import ParsedPaper, extract_references, parse_pdf_bytes
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,17 @@ def load_arxiv(
 
     code = meta.arxiv_id if meta else normalize_arxiv_id(arxiv_id)
     data = download_arxiv_pdf(code)
+    # 保留原始 PDF，后续「图表理解」需要从 PDF 里抽取图。
+    # 之前只解析不落盘，导致 arXiv 论文的图表理解一直为空。
+    if STORE_PDF:
+        try:
+            target_dir = Path(PAPERS_DIR)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / f"arxiv_{code}.pdf"
+            if not target.exists():
+                target.write_bytes(data)
+        except OSError as exc:  # noqa: BLE001 - 存不了 PDF 不影响入库
+            logger.warning("保存 arXiv PDF 失败（不影响文本入库）：%s", exc)
     paper = parse_pdf_bytes(
         data,
         fallback_title=meta.title if meta else f"arXiv {code}",

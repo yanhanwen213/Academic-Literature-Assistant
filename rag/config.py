@@ -164,3 +164,47 @@ EXTRACTION_AUTO = _env_bool("RAG_EXTRACTION_AUTO", True)
 EXTRACTION_MAX_RETRIES = int(os.getenv("RAG_EXTRACTION_MAX_RETRIES", "2"))
 # 每篇论文最多喂给抽取模型的字符数（控制成本）
 EXTRACTION_MAX_CHARS = int(os.getenv("RAG_EXTRACTION_MAX_CHARS", "6000"))
+
+# ---------------------------------------------------------------- 多模态（文本 + 图像 + 语音）
+# 总开关：关闭后前端不再展示多模态入口，后端也不会调用视觉 / 语音接口
+MULTIMODAL_ENABLED = _env_bool("RAG_MULTIMODAL_ENABLED", True)
+# 视觉模型名；留空时按模型名自动判断（gpt-4o / *-vl / gemini / claude-3 等）
+MULTIMODAL_VISION_MODEL = (os.getenv("RAG_VISION_MODEL") or "").strip()
+# 一次提问最多附带几张图片、单张图片大小上限（MB）
+MULTIMODAL_MAX_IMAGES = int(os.getenv("RAG_MULTIMODAL_MAX_IMAGES", "3"))
+MULTIMODAL_MAX_IMAGE_MB = float(os.getenv("RAG_MULTIMODAL_MAX_IMAGE_MB", "8"))
+# 是否把上传的 PDF 落盘，供「PDF 图表理解」按需提取图片
+STORE_PDF = _env_bool("RAG_STORE_PDF", True)
+PAPERS_DIR = _project_path("RAG_PAPERS_DIR", "data/papers")
+# PDF 图表提取：最小宽高（像素）、最大张数、最小字节数（过滤图标 / logo）
+FIGURE_MIN_WIDTH = int(os.getenv("RAG_FIGURE_MIN_WIDTH", "160"))
+FIGURE_MIN_HEIGHT = int(os.getenv("RAG_FIGURE_MIN_HEIGHT", "120"))
+FIGURE_MAX_COUNT = int(os.getenv("RAG_FIGURE_MAX_COUNT", "8"))
+FIGURE_MIN_BYTES = int(os.getenv("RAG_FIGURE_MIN_BYTES", "4096"))
+# 语音转写（OpenAI Whisper 兼容接口）：模型名、接口地址、读取哪个环境变量里的 Key
+ASR_MODEL = os.getenv("RAG_ASR_MODEL", "whisper-1")
+ASR_BASE_URL = (
+    os.getenv("RAG_ASR_BASE_URL")
+    or os.getenv("OPENAI_BASE_URL")
+    or "https://api.openai.com/v1"
+).strip().rstrip("/")
+ASR_API_KEY_ENV = (os.getenv("RAG_ASR_API_KEY_ENV") or "OPENAI_API_KEY").strip()
+ASR_TIMEOUT = int(os.getenv("RAG_ASR_TIMEOUT", "90"))
+
+# ---------------------------------------------------------------- AI 安全与可控
+# 总开关：关闭后不做提示注入 / 内容过滤 / 输出脱敏
+SAFETY_ENABLED = _env_bool("RAG_SAFETY_ENABLED", True)
+# 是否拦截「忽略以上指令 / 输出系统提示」这类提示注入
+SAFETY_BLOCK_PROMPT_INJECTION = _env_bool("RAG_SAFETY_BLOCK_PROMPT_INJECTION", True)
+# 是否拦截明确的违法 / 暴力制作类请求（保守词表，避免误伤学术讨论）
+SAFETY_CONTENT_FILTER = _env_bool("RAG_SAFETY_CONTENT_FILTER", True)
+# 是否对模型输出里的 API Key / Token / 邮箱等敏感信息做脱敏
+SAFETY_REDACT_SECRETS = _env_bool("RAG_SAFETY_REDACT_SECRETS", True)
+# 单条提问的最大字符数（超长提问视为滥用）
+SAFETY_MAX_QUESTION_CHARS = int(os.getenv("RAG_SAFETY_MAX_QUESTION_CHARS", "8000"))
+
+# ---------------------------------------------------------------- MCP（Model Context Protocol）
+# 外部 MCP Server 配置（JSON 字符串），例如：
+# MCP_SERVERS={"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."],"transport":"stdio"}}
+# 留空则不接入外部 MCP；需要安装 langchain-mcp-adapters。
+MCP_SERVERS = (os.getenv("MCP_SERVERS") or "").strip()

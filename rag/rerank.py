@@ -64,11 +64,15 @@ class CrossEncoderReranker:
 
     @property
     def available(self) -> bool:
+        # 只用 find_spec 探测是否安装，避免在会话初始化阶段真正 import
+        # sentence-transformers / torch（首次 import 往往要几秒，会拖慢登录后的加载）。
+        # 真正的依赖/模型问题留到 rerank() 第一次调用时再降级。
         try:
-            import sentence_transformers  # noqa: F401
-        except Exception:  # noqa: BLE001 - 缺依赖或 torch DLL 初始化失败都视为不可用
+            import importlib.util
+
+            return importlib.util.find_spec("sentence_transformers") is not None
+        except Exception:  # noqa: BLE001
             return False
-        return True
     @property
     def cached(self) -> bool:
         """模型是否已在本地缓存（决定 auto 模式要不要用它，避免联网卡死）。"""

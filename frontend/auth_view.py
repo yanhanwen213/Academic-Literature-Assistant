@@ -14,6 +14,12 @@ from title_orbits import orbit_title, orbit_style
 from backend import auth as auth_backend
 
 
+@st.cache_data(show_spinner=False)
+def _asset_base64(path_str: str) -> str:
+    """缓存大图的 base64，避免每次 rerun 都重新读盘 + 编码。"""
+    return base64.b64encode(Path(path_str).read_bytes()).decode("ascii")
+
+
 def render_login() -> None:
     st.markdown(orbit_style(), unsafe_allow_html=True)
     from urllib.parse import quote
@@ -54,9 +60,9 @@ def render_login() -> None:
     @keyframes ambient-drift {from {transform:translate(0,0) scale(1);}to {transform:translate(75px,45px) scale(1.25);}}
     @media(max-width:850px) {[data-testid="stAppViewContainer"] {background-size:auto 100%;}[data-testid="stAppViewContainer"]::before {width:130px;height:130px;}}
     </style>""".replace("ARTWORK", quote(drawing)), unsafe_allow_html=True)
-    reader_image = base64.b64encode(
-        (Path(__file__).parent / "assets" / "login_reader.png").read_bytes()
-    ).decode("ascii")
+    reader_image = _asset_base64(
+        str(Path(__file__).parent / "assets" / "login_reader.png")
+    )
     st.markdown("""<style>
     .login-reader-art {position:fixed;left:0;bottom:0;width:clamp(460px,56vw,880px);height:auto;z-index:0;pointer-events:none;user-select:none;opacity:.92;filter:drop-shadow(0 12px 24px #84639c18);transform-origin:50% 90%;animation:reader-breathe 7s ease-in-out infinite;}
     @keyframes reader-breathe {0%,100% {transform:translateY(0) rotate(-.4deg);}50% {transform:translateY(-8px) rotate(.4deg);}}

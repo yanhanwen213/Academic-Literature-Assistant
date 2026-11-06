@@ -3,7 +3,7 @@
 # 建议 Python 3.10+（LangChain 1.x / LanceDB 需要较新的 Python，3.13 已实测可用）
 
 # ---- 前端（Streamlit）
-streamlit>=1.40,<2.0
+streamlit>=1.43,<2.0
 # 管理后台的趋势图/表格直接使用 pandas（Streamlit 本身也依赖它，这里显式声明）
 pandas>=1.4,<3.0
 
@@ -32,3 +32,13 @@ pypdf>=4.2,<7.0
 
 # ---- 配置
 python-dotenv>=1.0,<2.0
+
+# ---- 多模态（图片理解 / 语音转写）
+# 不新增硬依赖：图片走 OpenAI 兼容的 image_url 内容块，语音走 Whisper 兼容 HTTP 接口，
+# 使用标准库 urllib 发送 multipart 请求。只需配置 RAG_VISION_MODEL 与 OPENAI_API_KEY。
+
+# ---- MCP（可选，按需安装）
+# 1) 作为 MCP Server 暴露文献工具：pip install "mcp>=1.0"
+# 2) 接入外部 MCP Server：pip install langchain-mcp-adapters，并配置 MCP_SERVERS
+# mcp>=1.0
+# langchain-mcp-adapters>=0.1

@@ -9,7 +9,13 @@ from typing import Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from agent.config import LLM_PROFILE, LLM_PROVIDER, LLM_PROVIDER_LABEL
+from agent.config import (
+    LLM_PROFILE,
+    LLM_PROVIDER,
+    LLM_PROVIDER_LABEL,
+    VISION_API_KEY,
+    VISION_BASE_URL,
+)
 
 # 这些占位符说明用户复制了模板但没填自己的 key
 _PLACEHOLDER_MARKERS = (
@@ -66,5 +72,33 @@ def build_llm(model: Optional[str], temperature: float = 0.2) -> BaseChatModel:
         model=model,
         api_key=api_key,
         base_url=base_url,
+        temperature=temperature,
+    )
+
+
+def build_vision_llm(model: str, temperature: float = 0.2) -> BaseChatModel:
+    """构造视觉模型。
+
+    默认复用当前 provider；如果单独配置了 `RAG_VISION_API_KEY` / `RAG_VISION_BASE_URL`
+    （例如文本用 DeepSeek、图片用 OpenAI 兼容视觉服务），则优先走这套独立配置。
+    """
+    if not model:
+        raise ValueError("未指定视觉模型名")
+    if not VISION_API_KEY and not VISION_BASE_URL:
+        return build_llm(model, temperature)
+
+    api_key = VISION_API_KEY or resolve_api_key()
+    if not api_key:
+        raise ValueError(
+            "已配置 RAG_VISION_BASE_URL，但缺少视觉模型 API Key："
+            "请填写 RAG_VISION_API_KEY（或当前 provider 的 Key）"
+        )
+
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(
+        model=model,
+        api_key=api_key,
+        base_url=VISION_BASE_URL or resolve_base_url(),
         temperature=temperature,
     )

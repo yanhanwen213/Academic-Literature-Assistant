@@ -4,6 +4,15 @@ import streamlit as st
 from title_orbits import orbit_title, orbit_style
 
 
+@st.cache_data(show_spinner=False)
+def _asset_base64(path_str: str) -> str:
+    """缓存大图的 base64，避免每次 rerun 都重新读盘 + 编码。"""
+    import base64
+    from pathlib import Path
+
+    return base64.b64encode(Path(path_str).read_bytes()).decode("ascii")
+
+
 def render_console_title():
     """Shattered type presentation adapted for the Streamlit sidebar."""
     shapes = (
@@ -380,11 +389,10 @@ def render_page_background(page):
     </style>""".replace("PURPLE", purple).replace("PINK", pink).replace("ARTWORK", artwork), unsafe_allow_html=True)
 
     if page == "💬 对话":
-        import base64
         from pathlib import Path
-        backdrop = base64.b64encode(
-            (Path(__file__).parent / "assets" / "chat_lace_background.png").read_bytes()
-        ).decode("ascii")
+        backdrop = _asset_base64(
+            str(Path(__file__).parent / "assets" / "chat_lace_background.png")
+        )
         st.markdown(
             """<style>
             [data-testid="stAppViewContainer"] {
@@ -472,11 +480,10 @@ def render_page_background(page):
         </style><div class="chat-left-garden" aria-hidden="true">""" + ''.join(left_butterflies) + '</div>', unsafe_allow_html=True)
 
     if page == "📚 文献库":
-        import base64
         from pathlib import Path
-        floral = base64.b64encode(
-            (Path(__file__).parent / "assets" / "library_floral_background.jpg").read_bytes()
-        ).decode("ascii")
+        floral = _asset_base64(
+            str(Path(__file__).parent / "assets" / "library_floral_background.jpg")
+        )
         floral_url = 'url("data:image/jpeg;base64,' + floral + '")'
         st.markdown("""<style>
         [data-testid="stAppViewContainer"] {
@@ -545,9 +552,9 @@ def render_page_background(page):
                 + 'px;--flower-tilt:' + str(tilt) + 'deg;--flower-delay:-' + str(index * 1.4)
                 + 's">' + petals + '<b></b></div>'
             )
-        natural_flowers = base64.b64encode(
-            (Path(__file__).parent / "assets" / "library_natural_blossoms.png").read_bytes()
-        ).decode("ascii")
+        natural_flowers = _asset_base64(
+            str(Path(__file__).parent / "assets" / "library_natural_blossoms.png")
+        )
         flowers = ['<img class="library-natural-blossoms" src="data:image/png;base64,'
                    + natural_flowers + '" alt="" />']
         drifts = ''.join('<span class="library-drifting-petal" style="--drift-delay:-'
@@ -681,9 +688,10 @@ def render_page_background(page):
         + '<i class="ambient-dot"></i><i class="ambient-dot"></i><i class="ambient-dot"></i></div>', unsafe_allow_html=True)
 
     if page == "🕸 引用图谱":
-        import base64
         from pathlib import Path
-        sky = base64.b64encode((Path(__file__).parent / "assets" / "graph_hydrangea_sky.png").read_bytes()).decode("ascii")
+        sky = _asset_base64(
+            str(Path(__file__).parent / "assets" / "graph_hydrangea_sky.png")
+        )
         sky_url = 'url("data:image/png;base64,' + sky + '")'
         petals = ''.join('<i style="--x:' + str(56 + n * 6) + '%;--delay:-' + str(n * 3.1) + 's"></i>' for n in range(7))
         st.markdown("""<style>
@@ -739,12 +747,11 @@ def render_page_background(page):
 
 def _render_admin_landscape():
     """Admin-only photographic scenery with gentle CSS motion."""
-    import base64
     from pathlib import Path
 
-    scene = base64.b64encode(
-        (Path(__file__).parent / "assets" / "admin_lavender_dusk.png").read_bytes()
-    ).decode("ascii")
+    scene = _asset_base64(
+        str(Path(__file__).parent / "assets" / "admin_lavender_dusk.png")
+    )
     st.markdown('''<style>
     [data-testid="stAppViewContainer"] {
       background-color:#f2ecf8;
@@ -789,3 +796,50 @@ def _render_admin_landscape():
     @media(max-width:700px) {[data-testid="stMain"] [data-testid="stTabs"] {padding:10px;border-radius:16px;}[data-baseweb="tab-list"] {gap:4px;}[data-baseweb="tab"] {padding:8px 10px;font-size:13px;}.admin-birds {width:100px;top:18%;}.admin-mist {width:120%;}}
     @media(prefers-reduced-motion:reduce) {.admin-scenery * {animation:none!important;}[data-testid="stMain"] [data-testid="stMetric"] {transition:none;}}
     </style><div class="admin-scenery" aria-hidden="true"><div class="admin-mist one"></div><div class="admin-mist two"></div><svg class="admin-birds" viewBox="0 0 180 70" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 40q12-12 24 0 12-12 24 0M85 20q9-9 18 0 9-9 18 0M130 52q7-7 14 0 7-7 14 0"/></svg><div class="admin-ripple"></div><div class="admin-ripple second"></div></div>'''.replace('SCENE', scene), unsafe_allow_html=True)
+
+
+def render_ui_tokens():
+    """Converge scattered colors into a small set of CSS variables and normalize spacing."""
+    st.markdown("""
+<style>
+:root {
+  --ui-accent: #82699f;
+  --ui-accent-soft: #efe7f6;
+  --ui-ink: #302b40;
+  --ui-muted: #8c859b;
+  --ui-line: #e8e4ef;
+  --ui-surface: #ffffff;
+  --ui-radius: 13px;
+}
+[data-testid="stExpander"] { border-radius: var(--ui-radius); }
+[data-testid="stExpander"] summary { padding-top: 10px; padding-bottom: 10px; }
+.stButton button, .stDownloadButton button { border-radius: 9px; }
+[data-testid="stCaptionContainer"] { color: var(--ui-muted); font-size: 12.5px; }
+[data-testid="stMetric"] { border-radius: 14px; }
+.empty-state {
+  padding: 26px 24px; margin: 18px 0 24px;
+  background: linear-gradient(135deg, #ffffff, #f4effa);
+  border: 1px solid var(--ui-line); border-radius: 18px;
+  box-shadow: 0 6px 22px #40304f06;
+}
+.empty-state .empty-title { font-size: 17px; font-weight: 600; color: var(--ui-ink); margin: 0 0 6px; }
+.empty-state .empty-desc { font-size: 13.5px; color: var(--ui-muted); margin: 0 0 14px; line-height: 1.7; }
+.empty-state .empty-steps { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.empty-state .empty-steps li {
+  background: var(--ui-accent-soft); color: #71558e; font-size: 12.5px;
+  padding: 7px 14px; border-radius: 24px; border: 1px solid #e3daee;
+}
+.empty-state .empty-hint { font-size: 12px; color: var(--ui-muted); margin-top: 12px; }
+</style>
+""", unsafe_allow_html=True)
+
+
+def render_empty_state(title, desc, steps, hint=""):
+    steps_html = "".join("<li>" + str(step) + "</li>" for step in steps)
+    hint_html = ('<div class="empty-hint">' + hint + "</div>") if hint else ""
+    st.markdown(
+        '<div class="empty-state"><div class="empty-title">' + title + "</div>"
+        '<div class="empty-desc">' + desc + "</div>"
+        '<ul class="empty-steps">' + steps_html + "</ul>" + hint_html + "</div>",
+        unsafe_allow_html=True,
+    )

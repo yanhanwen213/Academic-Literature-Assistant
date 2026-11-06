@@ -43,6 +43,10 @@ class ToolCall:
     @property
     def summary(self) -> str:
         arg_text = ", ".join(f"{key}={value}" for key, value in self.args.items())
+        if self.name == "list_papers":
+            # list_papers 只列目录，不往引用 collector 里加片段，
+            # 所以 "命中 0 条" 是预期的，这里换成更直观的描述避免误解。
+            return f"第 {self.step} 步 · {self.name}({arg_text}) → 已列出库内文献目录"
         return f"第 {self.step} 步 · {self.name}({arg_text}) → 命中 {self.documents} 条"
 
 
@@ -100,12 +104,17 @@ class LiteratureTools:
         knowledge,
         citation_graph=None,
         extraction_store=None,
+        figure_lister=None,
+        figure_describer=None,
     ) -> None:
         self.knowledge = knowledge
         self.collector = SourceCollector()
         self.calls: List[ToolCall] = []
         self.citation_graph = citation_graph
         self.extraction_store = extraction_store
+        # 多模态：列出 PDF 图表 / 用视觉模型描述图表（由 ChatSession 注入）
+        self.figure_lister = figure_lister
+        self.figure_describer = figure_describer
         # 最近一次 compare_methods 生成的表格，供前端直接展示
         self.last_table: str = ""
 
@@ -417,6 +426,69 @@ class LiteratureTools:
         names = "、".join(p.method_name or p.title for p in profiles)
         return f"已生成 {len(profiles)} 种方法（{names}）的对比表：\n\n{table}"
 
+    # ------------------------------------------------------------ 多模态图表工具
+    def list_figures(self, source_key: str) -> str:
+        """列出某篇论文 PDF 中抽取到的图表（页码 / 序号 / 尺寸）。"""
+        if not self.figure_lister:
+            return "图表提取未启用或当前文献没有保留原始 PDF。"
+        try:
+            figures = self.figure_lister((source_key or "").strip())
+        except Exception as exc:  # noqa: BLE001
+            return f"读取图表失败：{exc}"
+        if not figures:
+            return (
+                f"《{source_key}》没有可用的图表：可能没有保留原始 PDF，"
+                "或 PDF 里的图片过小（图标 / logo 已被过滤）。"
+            )
+        lines = [f"《{source_key}》共提取到 {len(figures)} 张图表："]
+        for figure in figures:
+            lines.append(
+                f"- 第 {figure.get('page', '?')} 页 · 图 {figure.get('index', '?')} · "
+                f"{figure.get('width', '?')}×{figure.get('height', '?')} · {figure.get('ext', 'png')}"
+            )
+        lines.append("可用 describe_figure 工具让视觉模型解释其中一张。")
+        return _truncate("\n".join(lines))
+
+    def describe_figure(
+        self,
+        source_key: str,
+        page: int = 0,
+        figure_index: int = 0,
+        question: str = "",
+    ) -> str:
+        """让视觉模型解释某篇论文的一张图表（按页码或图表序号定位）。"""
+        if not self.figure_lister or not self.figure_describer:
+            return "图表理解未启用：请配置视觉模型（RAG_VISION_MODEL）并保留原始 PDF。"
+        try:
+            figures = self.figure_lister((source_key or "").strip())
+        except Exception as exc:  # noqa: BLE001
+            return f"读取图表失败：{exc}"
+        if not figures:
+            return f"《{source_key}》没有可用的图表。"
+
+        target = None
+        if page:
+            target = next((item for item in figures if int(item.get("page") or 0) == int(page)), None)
+        if target is None and figure_index:
+            target = next(
+                (item for item in figures if int(item.get("index") or 0) == int(figure_index)),
+                None,
+            )
+        if target is None:
+            target = figures[0]
+
+        try:
+            description = self.figure_describer(
+                (source_key or "").strip(), target, question
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"图表描述失败：{exc}"
+        header = (
+            f"《{source_key}》第 {target.get('page', '?')} 页 · 图 "
+            f"{target.get('index', '?')}（{target.get('width', '?')}×{target.get('height', '?')}）：\n\n"
+        )
+        return _truncate(header + (description or "（没有返回描述）"))
+
     # ------------------------------------------------------------ 工具定义
     def as_langchain_tools(self) -> List[StructuredTool]:
         """转成给模型绑定用的工具列表。"""
@@ -505,6 +577,33 @@ class LiteratureTools:
                 )
             )
 
+        if self.figure_lister is not None:
+            tools.append(
+                StructuredTool.from_function(
+                    func=self.list_figures,
+                    name="list_figures",
+                    description=(
+                        "列出某篇论文 PDF 中抽取到的图表（页码 / 序号 / 尺寸）。"
+                        "参数 source_key 是文献来源标识。"
+                        "当用户问「这篇论文有哪些图」「图表在第几页」时使用。"
+                    ),
+                )
+            )
+
+        if self.figure_lister is not None and self.figure_describer is not None:
+            tools.append(
+                StructuredTool.from_function(
+                    func=self.describe_figure,
+                    name="describe_figure",
+                    description=(
+                        "用视觉模型解释某篇论文的一张图表（结构 / 趋势 / 关键数值）。"
+                        "参数 source_key 是文献来源标识，page 是页码，"
+                        "figure_index 是图表序号，question 是具体想问的角度。"
+                        "当用户问「这张图说明了什么」「解释图 2」时使用。"
+                    ),
+                )
+            )
+
         return tools
 
     def dispatch(self, name: str, args: Dict[str, Any]) -> str:
@@ -518,6 +617,8 @@ class LiteratureTools:
             "get_citations": self.get_citations,
             "trace_lineage": self.trace_lineage,
             "compare_methods": self.compare_methods,
+            "list_figures": self.list_figures,
+            "describe_figure": self.describe_figure,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -543,6 +644,7 @@ _TOOL_HINTS = (
     ("get_citations", ("谁引用", "谁改进", "后续工作", "被引用", "cited by", "follow-up")),
     ("get_references", ("参考文献", "引用了哪些", "基于哪些", "references", "build on")),
     ("compare_methods", ("对比表", "对比这些方法", "方法对比", "comparison table")),
+    ("describe_figure", ("这张图", "图表", "figure", "曲线图", "柱状图", "架构图", "流程图")),
     ("compare_papers", ("对比", "比较", "区别", "差异", "compare", "difference")),
     ("read_section", ("第", "章节", "section", "全文", "原文", "读一下")),
 )

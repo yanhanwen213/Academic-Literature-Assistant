@@ -11,7 +11,8 @@ import logging
 import threading
 import time
 import uuid
-from typing import Any, Dict, Iterator, List, Optional
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -23,7 +24,7 @@ from agent.config import (
     NUM_HISTORY_MESSAGES,
     WELCOME_MESSAGE,
 )
-from agent.llm import build_llm
+from agent.llm import build_llm, build_vision_llm
 from agent.prompts import format_documents, format_sources
 from agent.rag_chain import build_rag_chain
 from agent.storage import SqliteRunStore, backup_file
@@ -46,18 +47,36 @@ from rag.config import (
     EXTRACTION_AUTO,
     GRAPH_ENABLED,
     MIN_CHUNK_CHARS,
+    PAPERS_DIR,
     QUERY_REWRITE,
     REFUSAL_ENABLED,
     REFUSAL_MIN_CONFIDENCE,
     REWRITE_NUM_QUERIES,
+    SAFETY_ENABLED,
+    STORE_PDF,
     TOOL_FINAL_DOCUMENTS,
     TOOL_MODE,
 )
 from rag.extraction import ExtractionStore, MethodExtractor
 from rag.knowledge_base import RAGKnowledgeBase
 from rag.loaders import IngestResult
+from rag.mcp_client import load_mcp_tools
+from rag.multimodal import (
+    MultimodalAnswerer,
+    describe_figure,
+    extract_pdf_figures,
+    normalize_images,
+    resolve_vision_model,
+    transcribe_audio,
+)
 from rag.query_rewrite import QueryRewriter
 from rag.refusal import (Confidence, assess_confidence, refusal_message, should_refuse)
+from rag.safety import (
+    SafetyReport,
+    inspect_question,
+    safety_rejection_message,
+    scrub_output,
+)
 from rag.tool_chain import ToolChainResult, ToolChainRunner
 from rag.tools import needs_tools
 from rag.vector_store import vector_store_available, vector_store_hint
@@ -76,6 +95,7 @@ class ChatSession:
         owner: str = "",
         role: str = "member",
     ) -> None:
+        _t0 = time.perf_counter()
         self.session_id = uuid.uuid4().hex
         # 会话归属：历史记录按 owner 过滤，管理员可看全部
         self.owner = (owner or "").strip()
@@ -89,6 +109,19 @@ class ChatSession:
 
         self.llm: BaseChatModel = build_llm(self.llm_model)
         self.chain: Runnable = build_rag_chain(self.llm)
+        # 多模态：视觉模型可以是另一个模型（RAG_VISION_MODEL），例如文本用 deepseek-chat、
+        # 图片用同一 provider 下的视觉模型；构造失败时回退到当前模型，由 available 判定降级。
+        vision_model = resolve_vision_model(self.llm_model)
+        vision_llm: BaseChatModel = self.llm
+        if vision_model and vision_model != self.llm_model:
+            try:
+                vision_llm = build_vision_llm(vision_model)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("视觉模型 %s 初始化失败，回退到 %s：%s", vision_model, self.llm_model, exc)
+                vision_model = ""
+        self.multimodal = MultimodalAnswerer(
+            vision_llm, vision_model or self.llm_model
+        )
         # 知识库需要 llm 才能做 LLM 重排，必须在 llm 之后构造
         self.knowledge = RAGKnowledgeBase(
             embeddings_model=self.embeddings_model,
@@ -106,6 +139,7 @@ class ChatSession:
         self.tool_mode = TOOL_MODE
         self.graph_enabled = GRAPH_ENABLED
         self.extraction_enabled = EXTRACTION_AUTO
+        self.safety_enabled = SAFETY_ENABLED
         self.chunk_options: Dict[str, object] = {
             "chunk_size": CHUNK_SIZE,
             "overlap": CHUNK_OVERLAP,
@@ -135,6 +169,9 @@ class ChatSession:
             self.knowledge,
             citation_graph=self.citation_graph,
             extraction_store=self.extraction_store,
+            figure_lister=self.extract_paper_figures,
+            figure_describer=self.describe_paper_figure,
+            extra_tools=load_mcp_tools(),
         )
         # 最近一次回答的可信度信息（引用校验 / 置信度 / 工具调用 / 对比表）
         self.last_report: Optional[CitationReport] = None
@@ -142,6 +179,8 @@ class ChatSession:
         self.last_tool_trace: List[str] = []
         self.last_table: str = ""
         self.last_refused: bool = False
+        self.last_safety: Optional[SafetyReport] = None
+        self.last_images: int = 0
 
         # 向量库（本地文件库）与历史存储的可用性，供前端提示
         self._db_available = vector_store_available(self.library.lancedb)
@@ -161,6 +200,12 @@ class ChatSession:
         self.run_id: Optional[str] = None
         self._pending_create = False
         self._start_run([{"role": "assistant", "content": WELCOME_MESSAGE}])
+        logger.info(
+            "ChatSession 初始化完成：%.2fs（模型 %s ｜ 知识库 %s）",
+            time.perf_counter() - _t0,
+            self.llm_model,
+            self.library_name,
+        )
 
     # ---------------------------------------------------------------- 子系统
     def _init_graph(self) -> None:
@@ -250,6 +295,8 @@ class ChatSession:
                 self.extraction_enabled = enabled
                 self._init_extraction()
                 self._sync_tool_runner()
+        if "safety_enabled" in options and options["safety_enabled"] is not None:
+            self.safety_enabled = bool(options["safety_enabled"])
 
         for key in ("chunk_size", "overlap", "min_chars", "contextual_header", "dedupe"):
             if key in options and options[key] is not None:
@@ -263,6 +310,10 @@ class ChatSession:
     @property
     def storage_available(self) -> bool:
         return self._storage_available
+
+    @property
+    def multimodal_available(self) -> bool:
+        return bool(self.multimodal.available)
 
     @property
     def messages(self) -> List[Dict[str, str]]:
@@ -418,13 +469,31 @@ class ChatSession:
         pairs = scored if self.knowledge._dense_enabled else []
         return documents, pairs, tool_result
 
-    def stream_answer(self, question: str) -> Iterator[str]:
-        """流式回答：改写 → （多步工具链 / 单步检索）→ 拒答校准 → 生成 → 引用校验。"""
+    def stream_answer(
+        self,
+        question: str,
+        images: Optional[Sequence] = None,
+    ) -> Iterator[str]:
+        """流式回答：安全检查 → 改写 → 检索 → 拒答校准 → 生成 → 引用校验 → 脱敏。
+
+        `images` 可传 `bytes` 或 `(bytes, mime)`，用于图表 / 公式截图问答；传了图片时
+        会改用视觉模型，并把检索到的文献作为文本上下文一起送入（多模态 RAG）。
+        """
 
         def _generate() -> Iterator[str]:
             with self._lock:
                 self.last_active = time.time()
-                self._messages.append({"role": "user", "content": question})
+                image_error = ""
+                try:
+                    image_payloads = normalize_images(images)
+                except ValueError as exc:
+                    image_payloads = []
+                    image_error = str(exc)
+
+                display_question = question
+                if image_payloads:
+                    display_question = f"{question}\n\n（附带 {len(image_payloads)} 张图片）"
+                self._messages.append({"role": "user", "content": display_question})
                 history = self._history()
                 answer = ""
                 self.last_report = None
@@ -432,7 +501,30 @@ class ChatSession:
                 self.last_tool_trace = []
                 self.last_table = ""
                 self.last_refused = False
+                self.last_safety = None
+                self.last_images = len(image_payloads)
+                redactions = 0
                 try:
+                    # 0) 安全闸门：提示注入 / 高危请求直接拦截（可解释、可关闭）
+                    safety = inspect_question(question, enabled=self.safety_enabled)
+                    self.last_safety = safety
+                    if image_error:
+                        message = (
+                            f"**图片附件无效**：{image_error}\n\n"
+                            "请重新选择 PNG / JPEG / WEBP 图片后再试。"
+                        )
+                        self.last_report = build_citation_report(message, [])
+                        answer = message
+                        yield message
+                        return
+                    if safety.blocked:
+                        message = safety_rejection_message(safety)
+                        self.last_report = build_citation_report(message, [])
+                        self.last_refused = True
+                        answer = message
+                        yield message
+                        return
+
                     # 1) Query 改写：结合历史补全追问，并生成多个检索问法
                     try:
                         queries = self.rewriter.rewrite(question, history)
@@ -455,20 +547,30 @@ class ChatSession:
                     # 3) 拒答校准：置信度不足就直接说「文献里没有」，不让模型硬编。
                     #    但工具链已经查证过的内容（例如「我上传了哪些文献」由 list_papers
                     #    直接给出目录）不再做拒答判断 —— 那类问题本身就没有语义相近的片段。
+                    #    附带图片时以图片为主要依据，也不做文本拒答。
                     confidence = assess_confidence(
                         prompt_question,
                         documents,
                         scored=scored or None,
                     )
-                    self.last_confidence = confidence
+                    self.last_confidence = None if (image_payloads and not documents) else confidence
 
                     tool_evidence = (tool_result.evidence or "").strip() if tool_result else ""
                     tool_verified = bool(tool_result and tool_result.calls and tool_evidence)
 
-                    if not tool_verified and should_refuse(
-                        confidence,
-                        self.refusal_threshold,
-                        enabled=self.refusal_enabled,
+                    # 工具链已直接查证（如「我上传了哪些文献」）且没有检索片段时，
+                    # 置信度面板显示 0.00 会误导；这类回答以工具证据为准，隐藏检索置信度。
+                    if tool_verified and not documents:
+                        self.last_confidence = None
+
+                    if (
+                        not tool_verified
+                        and not image_payloads
+                        and should_refuse(
+                            confidence,
+                            self.refusal_threshold,
+                            enabled=self.refusal_enabled,
+                        )
                     ):
                         message = refusal_message(confidence, self.refusal_threshold)
                         self.last_report = build_citation_report(
@@ -484,14 +586,37 @@ class ChatSession:
                     self.last_report = CitationReport(sources=sources)
                     context = format_documents([source.document for source in sources])
 
-                    # 5) 生成：用补全后的完整问题去问，回答才连贯
-                    for chunk in self.tool_runner.stream_final(
-                        self.chain,
-                        prompt_question,
-                        context,
-                        history,
-                        extra_evidence=tool_evidence,
-                    ):
+                    # 5) 生成：有图片走多模态视觉模型，否则走工具链 / RAG 链
+                    if image_payloads and not self.multimodal.available:
+                        message = (
+                            f"**当前模型 `{self.llm_model}` 未识别为视觉模型。**\n\n"
+                            "图片问答需要视觉模型：请在 `.env` 设置 `RAG_VISION_MODEL`（如 `gpt-4o`），"
+                            "或把 `LLM_PROVIDER` / `DEFAULT_LLM_MODEL` 换成支持图片的模型后重试。"
+                        )
+                        self.last_report = build_citation_report(message, sources)
+                        answer = message
+                        yield message
+                        return
+
+                    stream = (
+                        self.multimodal.stream(
+                            prompt_question, context, image_payloads, history
+                        )
+                        if image_payloads
+                        else self.tool_runner.stream_final(
+                            self.chain,
+                            prompt_question,
+                            context,
+                            history,
+                            extra_evidence=tool_evidence,
+                        )
+                    )
+                    for chunk in stream:
+                        if not chunk:
+                            continue
+                        # 输出侧脱敏：把 API Key / Token / 邮箱等敏感信息抹掉后再展示
+                        chunk, count = scrub_output(chunk, enabled=self.safety_enabled)
+                        redactions += count
                         if not chunk:
                             continue
                         answer += chunk
@@ -517,6 +642,9 @@ class ChatSession:
                         answer += table_block
                         yield table_block
                 finally:
+                    # 记录本次脱敏数量，供前端「安全」面板展示
+                    if self.last_safety is not None and redactions:
+                        self.last_safety.redactions += redactions
                     # 客户端中途断开也把已生成的部分记下来
                     if answer:
                         self._messages.append({"role": "assistant", "content": answer})
@@ -543,8 +671,72 @@ class ChatSession:
             )
             self._count_cache = (0.0, self._count_cache[1] + result.added)
             self._papers_cache = None
+            # 落盘一份 PDF，供之后的「图表理解 / 多模态」按需提取图片
+            self._store_pdf(result.source_key, data)
             self._post_ingest(result)
             return result
+
+    def _store_pdf(self, source_key: str, data: bytes) -> None:
+        """保存原始 PDF，供多模态图表提取使用；失败不影响文本入库。"""
+        if not STORE_PDF or not source_key or not data:
+            return
+        try:
+            path = Path(PAPERS_DIR) / f"{source_key.replace(':', '_')}.pdf"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                path.write_bytes(data)
+        except OSError as exc:
+            logger.warning("原始 PDF 保存失败（不影响问答）：%s", exc)
+
+    def extract_paper_figures(self, source_key: str) -> List[dict]:
+        """从已保存的 PDF 中抽取图表，供前端 / API 选择后描述。"""
+        if not source_key:
+            return []
+        path = Path(PAPERS_DIR) / f"{source_key.replace(':', '_')}.pdf"
+        if not path.exists() and source_key.startswith("arxiv:"):
+            # 兼容旧数据：早期导入的 arXiv 论文只解析未落盘 PDF，
+            # 打开「图表理解」时按需补下载一次。
+            code = source_key.split(":", 1)[1]
+            try:
+                from rag.arxiv import download_arxiv_pdf
+
+                data = download_arxiv_pdf(code)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            except Exception as exc:  # noqa: BLE001 - 下载失败则视为无图表
+                logger.warning("按需下载 arXiv PDF 失败（图表理解不可用）：%s", exc)
+        if not path.exists():
+            return []
+        try:
+            return extract_pdf_figures(path.read_bytes())
+        except OSError as exc:
+            logger.warning("读取 PDF 图表失败：%s", exc)
+            return []
+
+    def describe_paper_figure(
+        self,
+        source_key: str,
+        figure: dict,
+        question: str = "",
+    ) -> str:
+        """用视觉模型解释某篇论文的一张图表。"""
+        context = ""
+        for document in self.knowledge.vector_store.all_documents():
+            if (document.metadata or {}).get("source_key") == source_key:
+                context += (document.page_content or "") + "\n"
+                if len(context) >= 3000:
+                    break
+        return describe_figure(
+            self.multimodal.llm,
+            self.multimodal.model,
+            figure,
+            question=question,
+            context=context[:3000],
+        )
+
+    def transcribe_audio(self, data: bytes, filename: str = "audio.webm") -> str:
+        """把语音提问转成文字；转写后仍由 `stream_answer` 走安全 + RAG。"""
+        return transcribe_audio(data, filename=filename)
 
     def add_arxiv(self, arxiv_id: str) -> IngestResult:
         with self._lock:
